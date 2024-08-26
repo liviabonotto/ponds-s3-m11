@@ -7,11 +7,8 @@ import pandas as pd
 
 app = Flask(__name__)
 
-# Criar bucket se não existir
+#criar bucket se não existir
 create_bucket_if_not_exists("raw-data")
-
-# Executar o script SQL para criar a tabela
-execute_sql_script('sql/create_table.sql')
 
 @app.route('/data', methods=['POST'])
 def receive_data():
@@ -25,20 +22,24 @@ def receive_data():
     except (ValueError, TypeError):
         return jsonify({"error": "Tipo de dados inválido"}), 400
 
-    # Processar e salvar dados
+    #processar e salvar dados
     filename = process_data(data)
     upload_file("raw-data", filename)
 
-    # Ler arquivo Parquet do MinIO
+    #ler arquivo Parquet do MinIO
     download_file("raw-data", filename, f"downloaded_{filename}")
     df_parquet = pd.read_parquet(f"downloaded_{filename}")
 
-    # Preparar e inserir dados no ClickHouse
+    #preparar e inserir dados no ClickHouse
     df_prepared = prepare_dataframe_for_insert(df_parquet)
-    client = get_client()  # Obter o cliente ClickHouse
+    client = get_client() 
     insert_dataframe(client, 'working_data', df_prepared)
 
     return jsonify({"message": "Dados recebidos, armazenados e processados com sucesso"}), 200
 
 if __name__ == '__main__':
+    #garantir que a tabela esteja criada antes de inserir dados
+    execute_sql_script('sql\create_table.sql')
+    #criar a view após garantir que a tabela exista
+    execute_sql_script('sql\create_view.sql')
     app.run(host='0.0.0.0', port=5000)

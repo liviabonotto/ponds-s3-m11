@@ -2,16 +2,16 @@ version: '3.8'
 
 services:
   minio:
-    image: minio/minio:latest #quando for pra produção, colocamos a versão!!
+    image: minio/minio:latest
     container_name: minio
     ports: 
-      - "9000:9000" #API
-      - "9001:9001" #WebUI
+      - "9000:9000"
+      - "9001:9001"
     environment: 
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     volumes:
-      - minio_data:/data #padrão do minio
+      - minio_data:/data
     command: server /data --console-address ":9001"
     restart: always
 
@@ -21,7 +21,22 @@ services:
     ports:
       - "8123:8123"
     volumes: 
-      - clickhouse_data:/var/lib/clickhouse #padrão do clickhouse
+      - clickhouse_data:/var/lib/clickhouse
+    restart: always
+
+  app:
+    build: .
+    container_name: data-pipeline-app
+    ports:
+      - "5000:5000"
+      - "8501:8501"
+    environment:
+      - FLASK_ENV=development
+      - MINIO_ENDPOINT=minio:9000
+      - CLICKHOUSE_HOST=clickhouse
+    depends_on:
+      - minio
+      - clickhouse
     restart: always
 
 volumes:

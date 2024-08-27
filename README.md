@@ -53,3 +53,9 @@ Você agora pode visualizar o arquivo temporário na interface do MinIO.
 
 ![5](assets/5.png)
 
+
+## 7. Executando testes 
+- Garanta que o pytest esteja instalado: `pip install pytest`
+- Para rodar os testes, execute `pytest`
+
+![6](assets/6.png)

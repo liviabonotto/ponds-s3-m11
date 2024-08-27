@@ -1,89 +1,51 @@
-# from minio import Minio
-# from minio.error import S3Error
-
-# def test_minio():
-#     client = Minio(
-#         "localhost:9000",
-#         access_key="minioadmin",
-#         secret_key="minioadmin",
-#         secure=False
-#     )
-
-#     bucket_name = "test-bucket"
-#     object_name = "test.txt"
-#     file_content = "Arquivo teste da livinha"
-
-# #conexão
-#     try: 
-#         if not client.bucket_exists(bucket_name):
-#             client.make_bucket(bucket_name)
-#             print(f"Bucket'`{bucket_name}' criado com sucesso!")
-#         else: 
-#             print(f"Bucket'`{bucket_name}' já existe")
-
-#         #criando o arquivo de teste
-#         with open (object_name, "w") as file: 
-#             file.write(file_content)
-
-#         #upload do bucket
-#         client.fput_object(bucket_name, object_name, object_name)
-#         print(f"Arquivo'`{object_name}' enviado com sucesso")
-
-#         #download do bucket
-#         client.fget_object(bucket_name, object_name, f"downloaded_{object_name}") #para não dar conflito
-#         print(f"Arquivo'`{object_name}' feito download com sucesso")
-
-#     except S3Error as e:
-#         print(f"Arquivo'`{e}' ")
-
-
-# if __name__ == "__main__":
-#     test_minio()
-
-
+import unittest
+from unittest.mock import patch, MagicMock
 from minio import Minio
-from minio.error import S3Error
+from data_pipeline.minio_client import create_bucket_if_not_exists, upload_file, download_file
+import tempfile
+import os
 
-def test_minio():
-    # Configuração do cliente MinIO
-    client = Minio(
-        "localhost:9000",  # Endereço do MinIO
-        access_key="minioadmin",  # Chave de acesso
-        secret_key="minioadmin",  # Chave secreta
-        secure=False  # Use True se estiver usando HTTPS
-    )
+class TestMinioClient(unittest.TestCase):
 
-    bucket_name = "test-bucket"
-    object_name = "test.txt"
-    file_content = "Este é um arquivo de teste."
+    @patch('data_pipeline.minio_client.minio_client')
+    def test_create_bucket_if_not_exists(self, mock_minio_client):
+        #configura o mock para retornar False, simulando que o bucket não existe
+        mock_minio_client.bucket_exists.return_value = False
 
-    try:
-        # Criar bucket se não existir
-        if not client.bucket_exists(bucket_name):
-            client.make_bucket(bucket_name)
-            print(f"Bucket '{bucket_name}' criado com sucesso.")
-        else:
-            print(f"Bucket '{bucket_name}' já existe.")
+        #chama a função que deve criar o bucket
+        create_bucket_if_not_exists('test-bucket')
 
-        # Criar um arquivo de teste
-        with open(object_name, "w") as file:
-            file.write(file_content)
+        #verifica se as funções foram chamadas conforme esperado
+        mock_minio_client.bucket_exists.assert_called_with('test-bucket')
+        mock_minio_client.make_bucket.assert_called_with('test-bucket')
 
-        # Fazer upload do arquivo para o MinIO
-        client.fput_object(bucket_name, object_name, object_name)
-        print(f"Arquivo '{object_name}' enviado com sucesso para o bucket '{bucket_name}'.")
+    @patch('data_pipeline.minio_client.minio_client')
+    def test_upload_file(self, mock_minio_client):
+        #cria um arquivo temporário para o teste
+        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+            tmp_file.write("Conteúdo de teste".encode('utf-8'))
+            tmp_file_name = tmp_file.name
 
-        # Fazer download do arquivo do MinIO
-        client.fget_object(bucket_name, object_name, f"downloaded_{object_name}")
-        print(f"Arquivo '{object_name}' baixado com sucesso do bucket '{bucket_name}'.")
+        #chama a função que deve fazer o upload do arquivo
+        upload_file('test-bucket', tmp_file_name)
 
-        # Ler o conteúdo do arquivo baixado
-        with open(f"downloaded_{object_name}", "r") as file:
-            downloaded_content = file.read()
-            print(f"Conteúdo do arquivo baixado: {downloaded_content}")
+        #verifica se a função fput_object foi chamada corretamente
+        mock_minio_client.fput_object.assert_called_with('test-bucket', os.path.basename(tmp_file_name), tmp_file_name)
 
-    except S3Error as e:
-        print(f"Erro ao interagir com o MinIO: {e}")
+        #remove o arquivo temporário
+        os.remove(tmp_file_name)
 
-if __name__ == "__main__":
-    test_minio()
+    @patch('data_pipeline.minio_client.minio_client')
+    def test_download_file(self, mock_minio_client):
+        #simula o comportamento de fget_object
+        mock_minio_client.fget_object.return_value = None
+
+        #chama a função que deve fazer o download do arquivo
+        download_file('test-bucket', 'test-file.txt', '/path/to/downloaded-test-file.txt')
+
+        #verifica se a função fget_object foi chamada corretamente
+        mock_minio_client.fget_object.assert_called_with('test-bucket', 'test-file.txt', '/path/to/downloaded-test-file.txt')
+
+
+if __name__ == '__main__':
+    unittest.main()

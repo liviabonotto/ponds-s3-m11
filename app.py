@@ -6,6 +6,7 @@ from data_pipeline.data_processing import process_data, prepare_dataframe_for_in
 import pandas as pd
 import os
 import logging
+import csv
 
 #configuração básica de log
 logging.basicConfig(level=logging.DEBUG)
@@ -57,41 +58,71 @@ def upload_csv():
         return jsonify({"error": "Nome de arquivo inválido"}), 400
 
     try:
+        dataset_name = os.path.splitext(file.filename)[0]
+        app.logger.info(f"Dataset name extracted from filename: {dataset_name}")
+
+  # Attempt to auto-detect the delimiter
+        try:
+            sample = file.read(1024).decode('utf-8')
+            file.seek(0)
+            sniffer = csv.Sniffer()
+            delimiter = sniffer.sniff(sample).delimiter
+            app.logger.info(f"Auto-detected delimiter: {delimiter}")
+        except Exception as e:
+            app.logger.error(f"Auto-detection of delimiter failed: {e}")
+            # If auto-detection fails, fallback to manual
+            if ';' in sample:
+                delimiter = ';'
+                app.logger.info("Fallback to semicolon delimiter")
+            else:
+                delimiter = ','
+                app.logger.info("Fallback to comma delimiter")
+
         app.logger.info("Lendo o arquivo CSV...")
-        df = pd.read_csv(file, delimiter=';')
+        df = pd.read_csv(file, delimiter=delimiter)
+        
+        app.logger.info(f"Shape of the DataFrame: {df.shape}")
+        
         if df.empty:
             app.logger.error("Arquivo CSV está vazio ou não possui colunas válidas.")
             return jsonify({"error": "Arquivo CSV está vazio ou não possui colunas válidas."}), 400
 
         app.logger.info(f"Dataframe lido com sucesso, tamanho: {df.shape}")
 
+        # Process DataFrame
         df_processed = process_data(df)
         app.logger.info("Dataframe processado com sucesso!")
 
-        df_prepared = prepare_dataframe_for_insert(df_processed)
+        # Prepare DataFrame for insertion, passing the dataset_name argument
+        df_prepared = prepare_dataframe_for_insert(df_processed, dataset_name)
         app.logger.info("Dataframe preparado para inserção no ClickHouse!")
 
-        #salvar temporariamente para upload no MinIO
+        # Save temporarily for upload to MinIO
         temp_filename = f"temp_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv"
         df.to_csv(temp_filename, index=False)
         app.logger.info(f"Arquivo temporário salvo: {temp_filename}")
 
-        #upload no MinIO
+        # Upload to MinIO
         upload_file("raw-data", temp_filename)
         app.logger.info("Arquivo enviado para MinIO")
 
-        #verifica e garante que a tabela existe antes de inserir os dados
+        # Ensure table exists
         client = get_client()
         ensure_table_exists(client, 'working_data', 'sql/create_table.sql')
 
-        #verifica e garante que a view existe
-        ensure_view_exists(client, 'working_view', 'sql/create_view.sql')
+        # Ensure view exists, handle missing SQL script
+        view_script_path = f'sql/create_view_{dataset_name}.sql'
+        if not os.path.exists(view_script_path):
+            app.logger.error(f"O arquivo de script SQL para criar a view não foi encontrado: {view_script_path}")
+            return jsonify({"error": f"O arquivo de script SQL para criar a view não foi encontrado: {view_script_path}"}), 500
+        
+        ensure_view_exists(client, f'{dataset_name}_view', view_script_path)
 
-        #inserir no ClickHouse
+        # Insert into ClickHouse
         insert_dataframe(client, 'working_data', df_prepared)
         app.logger.info("Dados inseridos no ClickHouse")
 
-        #remover o arquivo temporário
+        # Remove temporary file
         os.remove(temp_filename)
         app.logger.info(f"Arquivo temporário removido: {temp_filename}")
 
@@ -106,6 +137,9 @@ def upload_csv():
     except Exception as e:
         app.logger.error(f"Erro ao processar o arquivo: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+
+
 
 if __name__ == '__main__':
     #criar a tabela e a view na inicialização do servidor

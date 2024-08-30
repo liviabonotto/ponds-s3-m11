@@ -6,6 +6,9 @@ SELECT
     JSONExtractString(dado_linha, 'categoria') AS categoria,
     JSONExtractString(dado_linha, 'sub_categoria') AS sub_categoria,
     JSONExtractFloat(dado_linha, 'conteudo_valor') AS conteudo_valor,
-    JSONExtractString(dado_linha, 'conteudo_medida') AS conteudo_medida
+    JSONExtractString(dado_linha, 'conteudo_medida') AS conteudo_medida,
+    tag
 FROM
-    working_data;
+    working_data
+WHERE
+    tag = 'sku_dataset'; 
